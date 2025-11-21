@@ -1,0 +1,469 @@
+---
+title: "Case Study - Cyclistic"
+author: "Jinxiu"
+date: "2025-11-18"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Stage 1: Ask
+
+## Business Task
+
+Cyclistic wants to increase profitability through converting more casual riders into annual members. To achieve this goal, we need to analyze the difference of using Cyclistic bikes between casual riders and annual members. Insights from this analysis will guide us to set marketing strategies that target casual riders, promoting membership conversion.
+
+## Key Stakeholders
+
+**Internal Stakeholder**  
+
+* Lily Moreno: Director of marketing, responsible for the development of campaigns.
+* Marketing Analytics Team: Performing major work of data analysis.
+* Executive Team: Primary decision-makers for approving marketing strategies.
+
+**External Stakeholder**  
+
+* Casual riders: Target audience for membership conversion.
+* Annual members: Existing benchmark group for comparison.
+
+
+# Stage 2: Prepare
+
+## Data Source
+
+In this analysis, I use 2024 Divvy trip data, which is publicly available from Motivate International Inc.. There has one CSV file each month that contains the detailed records of user cycling. The data source link is as follows: https://divvy-tripdata.s3.amazonaws.com/index.html
+
+I download the raw data of a whole year from January 2024 to December 2024, ensuring that we can covering the complete time range, which will be easy to analyze seasonality and behavior difference.
+
+## Data Organization
+
+All data downloaded is in CSV format. Each file contains tens of thousands to hundreds of thousands cycling records.
+
+All files possess the consistent field schema. The main fields include:
+
+* ride_id: Unique identifier of user.
+* rideable_type: Type of bike.
+* started_at: Start time.
+* ended_at: End time.
+* start_station_name/end_station_name: Name of start/end station.
+* start_station_id/end_station_id: ID of start/end station.
+* start_lat/end_lat: Latitude of start/end station.
+* start_lng/end_lng: Longitude of start/end station.
+* member_casual: Type of user, member or non-member.
+
+To maintain a clear project structure, I store the raw data in the following path:  
+/01_data_raw/202401-divvy-tripdata.csv  
+/01_data_raw/202402-divvy-tripdata.csv  
+...  
+/01_data_raw/202412-divvy-tripdata.csv  
+
+The subsequent processing results of SQL will be stored into the second folder, which are separated from raw data.
+
+## Data Quality Assessment 
+Based on the ROCCC criteria, the assessment of data quality is as follows:  
+**Reliable:** Data was officially released by Motivate International Inc., whose source is credible.  
+**Original:** Data is directly made by Motivate International Inc. rather than processed or sample data.  
+**Comprehensive:** Data scale is large, including all cycling records in whole year and covering different seasons, bike types, and different user types.  
+**Current:** Adopting data in 2024 with current reference significance.  
+**Cited:** The official provides license publicly, allowing us using and analyzing. 
+
+To sum up, this data has a relatively high creditability and is proper for initial basic analysis.
+
+## Data Limitation
+
+Although data quality is good, there are the following limitations:  
+**Lack of user individual information** (such as age, gender, location), being unable to conduct more in-depth user persona analysis.  
+**Partial cycling records might be abnormal**, for example:  
+
+* Extremely short or long cycling time  
+* Missing names or ids of stations
+
+**No weather information**, thereby being unable to explore weather impact on cycling.  
+**No pricing data**, which means that we cannot evaluate the relationship between cycling cost and user behavior of purchasing membership. 
+
+The limitations will be processed in the next stage as far as possible.
+
+
+# Stage 3: Process
+
+To ensure the accuracy of analysis, I conduct the systematic process of data cleaning for 12-month Divvy trip data. The purpose is to strengthen data quality and remove abnormal values, enabling that final data for analysis can reflect user behavior truly.  
+The entire cleaning process includes:
+
+**1. Schema Check**
+
+First check whether field structures are same in 12 CSV files, including field counts, column names, and column types. The results show that all file structures are consistent and can be merged into an annual table **trips**.
+
+**2. Missing Value Check**
+
+Check NULL or empty strings in key fields:
+
+* ride_id: No missing values.
+* started_at/ended_at: Few missing values, but affecting calculation of cycling duration.
+* start_lat/start_lng/end_lat/end_lng: No missing values.
+* start_station_name/end_station_name: Approximately 10% to 23% missing values, which is the common situation for bike share (such as returning bikes in site-free areas).
+
+Considering that missing station names is business characteristic rather than data error, thereby reserving records with missing station names. 
+
+**3. Time Validity**
+
+Further check reasonability of timestamps:
+
+* Existing few end time < start time (negative duration).
+* Some cycling duration is less than 60 seconds.
+* Some cycling duration exceeds 24 hours.
+
+**4. Location Validity**
+
+Further check reasonability of latitude and longitude:
+
+* Latitude should be between -90 and 90.
+* Longitude should be between -180 and 180.
+* Few records are 0 or out-of-range, which are abnormal data.
+
+**5. Categorical Validity**
+
+Check field member_casual:
+
+* All records are both member or casual.
+* No missing values or typos.
+
+This field can be used for group comparison directly.
+
+**6. Create Table for Cleaned Data**
+
+Based on the checking results above, I remove the following records:
+
+* Missing or invalid timestamp fields.
+* Cycling duration <= 0 and <= 60s and > 24h.
+* Fields that latitude or longitude is 0 or out of range.
+
+Meanwhile, I add a field for cycling duration, named *duration_seconds*. After deleting, there is approximately 5.7 million valid cycling records which pass basic evaluation of availability, which is sufficient and reliable to support subsequent analysis. All fields are exported into a CSV file **trips_clean**, which is stored in the following path:  
+/02_data_sql_processed/trips_clean.csv 
+
+
+# Stage 4 & 5: Analyze & Share
+
+In this stage, I conduct descriptive statistics, data organization, and trend analysis to deal with business task: What are the differences of cycling behavior between annual members and casual riders in Cyclistic?
+
+```{r}
+# load packages
+library(here)
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(scales)
+```
+
+## Descriptive Analysis
+
+Include metrics such as average, medians, and quartile of cycling duration to understand basic behavior features for two types of users.
+
+```{r}
+# import cleaned data in relative path
+dat <- read.csv("../02_data_sql_processed/trips_clean.csv", header = TRUE)
+head(dat, 20)
+```
+
+```{r}
+# generate key statistics of duration in minutes
+dat %>%
+  group_by(member_casual) %>%
+  summarise(
+    mean_duration = mean(duration_seconds) / 60,
+    median_duration = median(duration_seconds) / 60,
+    sd_duration = sd(duration_seconds) / 60,
+    q1_duration = quantile(duration_seconds, 0.25) / 60,
+    q3_duration = quantile(duration_seconds, 0.75)/ 60
+  )
+```
+
+When comparing riding duration between annual members and casual riders, I observe meaningful differences. Casual riders tend to ride longer than annual members (**Median** 12.4 minutes vs. 8.9 minutes). Also, among casual users, their riding duration also show more dispersed (**Standard deviation** ~43 minutes vs. ~21 minutes).  
+Minimum and maximum values are not used in analysis because these values are often affected by system-generated abnormality (e.g., incomplete riding records), which cannot be the representative of common user behavior.
+
+## Data Organization
+
+For trend analysis, I need to add some fields, including splitting timestamp and converting unit of riding duration. Data format is consistent that has been checked in Stage 3: Process. Hence, there is no need for extra adjustment.
+
+```{r}
+# 
+dat_organized <- dat %>%
+  mutate(
+    started_at = ymd_hms(started_at),
+    ended_at = ymd_hms(ended_at),
+    duration_minutes = as.numeric(difftime(ended_at, started_at, units = 'mins')),
+    date = as.Date(started_at),
+    month = format(started_at, '%y-%m'),
+    weekday = wday(started_at, label = TRUE),
+    hour = hour(started_at)
+  )
+```
+
+## Trend Analysis
+
+Embracing behavior difference of annual members and casual riders, the focus is to analyze from the following 5 dimensions:
+
+### 1. Difference of Riding Duration
+
+```{r}
+p1 <- dat_organized %>%
+  ggplot(aes(x = member_casual, 
+             y = duration_minutes,
+             fill = member_casual)) + 
+  # --- violin plot ---
+  geom_violin(trim = TRUE, alpha = 0.4, color = NA) +
+  # --- boxplot ---
+  geom_boxplot(width = 0.22, color = 'grey28', 
+               fill = 'white', alpha = 0.7, 
+               outlier.shape = NA, linewidth = 0.8) + 
+  # --- limit range of duration --- 
+  coord_cartesian(ylim = c(0, 60)) + 
+  # --- assign colors ---
+  scale_fill_manual(values = c(
+    'member' = '#4C9AFF',
+    'casual' = '#61D095'
+  )) +
+  
+  labs(title = 'Ride Duration Comparison', 
+       x = 'User Type',
+       y = 'Ride Duration (minutes)') +
+  
+  guides(fill = guide_legend(title = NULL)) +
+  
+  theme(plot.title = element_text(face = 'bold', size = 15),
+        axis.title = element_text(face = 'bold')) +
+  theme_minimal(base_size = 12)
+
+p1
+```
+
+The overall riding duration of casual riders is longer with greater fluctuation. The long trip of nonmember displays a more significant 'long-tail' feature.
+
+In contrast, the riding duration of annual members is shorter, more intensive. The majority of trips concentrates on narrower time range. This shows a more regular usage mode of members.
+
+### 2. Monthly Riding Trend - Seasonality
+
+```{r}
+p2 <- dat_organized %>%
+  mutate(month = as.Date(paste0('20', month, '-01'))) %>%
+  
+  group_by(month, member_casual) %>%
+  
+  summarise(rider_count = n(), .groups = 'drop') %>%
+  
+  ggplot(aes(x = month,
+             y = rider_count,
+             fill = member_casual)) +
+  
+  geom_area(alpha = 0.7, color = "white", size = 0.3) +
+  
+  scale_fill_manual(values = c(
+    "member" = "#4C9AFF",  
+    "casual" = "#61D095"  
+  )) +
+  
+  scale_y_continuous(labels = comma) +
+  
+  labs(title = "Monthly Riding Trends (Non-stacked)",
+       x = "Month",
+       y = "Number of Rides") +
+  
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 15),
+    axis.title = element_text(face = "bold"),
+    legend.title = element_blank()
+  )
+
+p2
+```
+
+The monthly number of rides of member (annual members) and nonmember (casual riders) both show significant seasonal fluctuation. The entire trend increases in spring and summer gradually, achieves peaks in the end of summer, and then decreases rapidly after entering autumn and winter.
+
+Specially,  
+**1. Number of rides increases gradually from January and goes to the highest annual level between July and September.**  
+This aligns with Chicago's climate that warm weather will be more proper for outdoors riding.  
+**2. Members keep a relatively high and stable number of rides in the whole year with a smoother curve.**  
+This indicates that annual members tend to commuting or regular trips, being affected less by seasons.  
+**3. Nonmembers show clear seasonality about number of rides.**  
+The number of rides increases significantly during summer. This displays that casual riders have higher sensitivity to weather.  
+**4. After October, the number of rides among two types of users both declines quickly.**
+
+To sum up, seasonal factor (such as temperature, sunlight condition, and holidays) has more impact on casual riders. While the riding behavior of annual members is more stable.
+
+### 3. Rides by Day of Week
+
+```{r}
+p3 <- dat_organized %>%
+  mutate(weekday = factor(weekday,
+                          levels = c('Mon', 'Tue', 'Wed', 'Thu',
+                                     'Fri', 'Sat', 'Sun'))
+         ) %>%
+  
+  group_by(weekday, member_casual) %>%
+  
+  summarise(rider_count = n(), .groups = 'drop') %>%
+  
+  ggplot(aes(x = weekday,
+             y = rider_count,
+             fill = member_casual)) +
+  
+  geom_col(position = 'dodge') +
+  
+  scale_fill_manual(values = c(
+    "member" = "#4C9AFF",  
+    "casual" = "#61D095"  
+  )) +
+  
+  scale_y_continuous(labels = comma) +
+  
+  labs(title = 'Rides by Day of Week',
+       x = 'Day of Week',
+       y = 'Number of Rides') +
+  
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 15),
+    axis.title = element_text(face = "bold"),
+    legend.title = element_blank()
+  )
+
+p3
+```
+
+Overall, the number of rides within a week for members and nonmembers displays significantly different usage mode. Annual members' number of rides in weekdays is obviously higher than number in weekends, especially runs to peak on Wednesday and Thursday. This means that annual members focus mainly on commuting demands and regular trips whose riding behavior is more stable.
+
+In contrast, casual riders' number of rides is relatively lower between Monday and Friday, but increases significantly in weekends especially on Saturday. This trend shows that nonmembers tend more to relaxation, travelling, or short-distance trips, which are affected by weather and weekend activities more easily.
+
+The distribution within a week strengthens the difference of usage motivation for two user types again: Members tend to daily commuting and fixed routes, while nonmembers is out of the flexible riding demands for leisure scenarios.
+
+### 4. Hourly Usage Pattern
+
+```{r}
+p4 <- dat_organized %>%
+  mutate(hour = as.numeric(hour)) %>%
+  
+  group_by(hour, member_casual) %>%
+  
+  summarise(rider_count = n(), .groups = 'drop') %>%
+  
+  ggplot(aes(x = hour,
+             y = rider_count,
+             color = member_casual,
+             group = member_casual)) +
+  
+  geom_line(linewidth = 1.2) + 
+  
+  geom_point(size = 2, alpha = 0.8) + 
+  
+  scale_color_manual(values = c(
+    "member" = "#4C9AFF",  
+    "casual" = "#61D095"  
+  )) +
+  
+  scale_x_continuous(breaks = 0:23) +
+  scale_y_continuous(labels = comma) +
+  
+  labs(title = 'Hourly Riding Trends',
+       x = 'Hour of Day',
+       y = 'Number of Rides') +
+  
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 15),
+    axis.title = element_text(face = "bold"),
+    legend.title = element_blank()
+  )
+
+p4
+```
+
+From the overall distribution of hourly riding in the whole year, members and nonmembers show obvious difference of usage pattern. Members occurs 2 significant peaks from the morning 7am to 9am and the afternoon 16pm to 18pm, which belong to typical commuting feature. This indicates that annual members use shared bikes as means of transportation for their daily commutes or fixed trips.
+
+In contrast, casual riders' usage increases continuously by daylight and rises to peak during the afternoon 17pm and 18pm. Casual riders have no obvious usage demands during the morning peak, which matches more with the mode of leisure, travel, or temporary trips. 
+
+To sum up, members ride more regularly with more clear purpose, while nonmembers tend more to flexibility, recreational activities, and experiential trips.
+
+### 5. Rideable Type Preference
+
+```{r}
+p5 <- dat_organized %>%
+  group_by(rideable_type, member_casual) %>%
+  
+  summarise(rider_count = n(), .groups = 'drop') %>%
+  
+  ggplot(aes(x = rideable_type,
+             y = rider_count,
+             fill = member_casual)) +
+  
+  geom_col(position = 'stack', width = 0.6, 
+           color = NA, aes(alpha = 0.9)) + 
+  
+  scale_fill_manual(values = c(
+    "member" = "#4C9AFF",  
+    "casual" = "#61D095"  
+  )) +
+  
+  scale_alpha(range = c(0.7, 1), guide = 'none') +
+  scale_y_continuous(labels = comma) +
+  
+  labs(title = 'Rideable Type Preference',
+       x = 'Bike Type',
+       y = 'Number of Rides') +
+  
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 15),
+    axis.title = element_text(face = "bold"),
+    panel.grid.major.x = element_blank(),
+    legend.title = element_blank()
+  )
+
+p5
+```
+
+From the number of rides for various bike types, whether annual members or casual members, they show obvious preference in aspects of traditional biking mode rather than electric scooters. Among these bikes, electric bike takes the largest number of rides, followed by classic bike. 
+
+This tendency indicates that users prefer to choose a riding type that is faster, easier to ride, and suitable for trips in medium and long distance. This aligns with both commuting and leisure scenarios highly. 
+
+Although rideable type does not decide membership conversion directly, the finding of "electric bikes are more popular" means: If Cyclistic increases the supply of electric bikes or prioritize to put into use in areas with high-density population. This may enhance the entire user experience, thereby improving usage frequency of casual riders and promoting membership conversion.
+
+
+# Stage 6: Act
+
+Based on the analysis and visualization above, I propose three actionable business recommendations for Cyclistic.
+
+**1. Promote short-term or experiential membership programs for casual riders.**
+
+Casual riders have the highest riding volume on the weekends and in the afternoon, mostly for the leisure or travel scenarios. Introducing flexible plans such as "weekend membership package" and "three-day membership trial" can encourage nonmembers experiencing membership service proactively, reduce the conversion threshold, and increase registration rate.
+
+**2. Increase supply and advertisement of electric bikes in popular areas.**
+
+Insights indicate that two types of users prefer to electric bikes, especially in the period of high demands. Being prior to increase the supply of electric bikes in scenic spots/parks/downtown and pushing member discounts when finishing riding will benefit facilitating usage frequency and conversion.
+
+**3. Optimize the scheduling of shared bike during the period of commuting, increasing member experience.**
+
+Members show obvious commuting peaks from 7am to 9am and 16pm to 18pm. I suggest strengthening bike replenishment and maintenance, providing more stable bike availability in the commuting routes. This can enhance membership retention rate and satisfaction.
+
+Generally, our goal is:  
+Increase membership conversion and usage by satisfying the experiential demands of casual riders, strengthening the supply of electric bike, and improving user experience in commuting.
+
+# Stage 7: Export Plots
+
+In this section, I export all plots into folder *04_visualizations*.
+
+```{r}
+# ggsave('../04_visualizations/duration_violin.png', p1, width = 10, height = 6, dpi = 300)
+# ggsave('../04_visualizations/monthly_trends_area.png', p2, width = 10, height = 6, dpi = 300)
+# ggsave('../04_visualizations/weekday_barchart.png', p3, width = 10, height = 6, dpi = 300)
+# ggsave('../04_visualizations/hourly_trends_line.png', p4, width = 10, height = 6, dpi = 300)
+# ggsave('../04_visualizations/rideable_type_stack.png', p5, width = 10, height = 6, dpi = 300)
+```
