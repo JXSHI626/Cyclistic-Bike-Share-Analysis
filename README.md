@@ -13,12 +13,10 @@ This project is fully following the data analysis process (Ask → Prepare → P
 * GitHub
 
 ## 📂 Project Structure
-Cyclistic-Bike-Share-Analysis/  
-|—— 01_data_raw/                 
-|—— 02_data_sql_processed/       
-|—— 03_sql_scripts/              
-|—— 04_visualizations/          
-|—— 05_r_analysis_report/       
+Cyclistic-Bike-Share-Analysis/        
+|—— 01_sql_scripts/              
+|—— 02_visualizations/          
+|—— 03_r_analysis_report/       
 |—— README.md                    
 
 ## 📊 Key Findings
