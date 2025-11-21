@@ -1,4 +1,4 @@
-# Cyclistic-Bike-Share-Analysis
+# Cyclistic Bike-Share Analysis
 An end-to-end analytics project using SQL, R, ggplot2, and R Markdown
 
 ## 🎯 Project Objective
@@ -13,11 +13,20 @@ This project is fully following the data analysis process (Ask → Prepare → P
 * GitHub
 
 ## 📂 Project Structure
-Cyclistic-Bike-Share-Analysis/        
-|—— 01_sql_scripts/              
-|—— 02_visualizations/          
-|—— 03_r_analysis_report/       
-|—— README.md                    
+Cyclistic-Bike-Share-Analysis        
+* Data Process & Clean  
+  * data_import.sql  
+  * data_quality_check.sql  
+  * data_clean.sql  
+* Visualization Plots  
+  * duration_violin.png  
+  * monthly_trends_area.png  
+  * weekday_barchart.png  
+  * hourly_trends_line.png  
+  * rideable_type_stack.png  
+* HTML & Rmd Report  
+  * da_report_cyclistic.rmd  
+  * da_report_cyclistic.html  
 
 ## 📊 Key Findings
 **1. Member vs Nonmember Usage Patterns**  
